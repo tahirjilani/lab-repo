@@ -1,0 +1,15 @@
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+.DS_Store
+
+# Python (server/, notebooks)
+__pycache__/
+.venv/
+.ipynb_checkpoints/
+service-account*.json
