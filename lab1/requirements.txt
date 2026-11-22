@@ -1,0 +1,6 @@
+# Lab 1 (Frida). pip install -r lab1/requirements.txt
+# Frida 17 removed the Java bridge from the runtime, but the `frida` REPL and frida-trace
+# still bundle it, so `frida -U -f com.demo.wallet -l lab1/bypass.js` with Java.perform works.
+# frida-server on the emulator must be EXACTLY the version `frida --version` prints.
+frida-tools>=14
+frida>=17,<18

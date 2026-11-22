@@ -13,7 +13,7 @@ Build a risk score, tune its thresholds, and check who you end up challenging. B
 
 ## Open it in Colab
 
-`https://colab.research.google.com/github/[your-handle]/lab-repo/blob/main/lab3/risk_lab.ipynb`
+`https://colab.research.google.com/github/tahirjilani/lab-repo/blob/main/lab3/risk_lab.ipynb`
 
 (Solution: same URL with `risk_lab_solution.ipynb`. Checkpoint: `blob/lab3-step2/lab3/risk_lab.ipynb`.)
 
