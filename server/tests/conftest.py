@@ -31,7 +31,7 @@ def pytest_collection_modifyitems(config, items):
     skip = pytest.mark.skip(reason="Lab 2 exercise: fill in the LAB 2 TODOs in server/verify.py, "
                                    "then run `pytest server --lab2` (docs/lab2.md)")
     for item in items:
-        if "lab2" in item.keywords:
+        if item.get_closest_marker("lab2"):  # not item.keywords: that also matches a folder named lab2
             item.add_marker(skip)
 
 

@@ -24,7 +24,7 @@ The notebook builds the dataset itself when it opens in Colab, so there's nothin
 | 1 · Build the score | 25 | **TODO 1:** give points to the behavior tells. |
 | 2 · Choose the thresholds | 25 | **TODO 2:** set the bands: allow < a ≤ monitor < b ≤ step-up < c ≤ block. |
 | 3 · Who are you challenging? | 26 | **TODO 3:** run the per-cohort report on your decisions. |
-| 4 · Fix it | 26 | **TODO 4:** rewrite the behavior layer so it stops penalizing the wrong people. |
+| 4 · Fix it | 26 | **TODO 4:** switch on the three fixes (they're already written) and watch who stops being challenged. |
 
 Step 1 shows results by label only. Section 3 is where the cohorts appear; don't skip ahead.
 

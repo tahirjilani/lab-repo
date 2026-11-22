@@ -156,10 +156,38 @@ def test_assistant_over_delegation_steps_up_and_token_is_single_use(make_service
     token = delegate(svc, dev, cents=5_000, payeeId="ana")
     over = submit(svc, dev, actor="assistant", agent_token=token, cents=20_000)
     assert over["decision"] == "step_up" and "exceeds the delegated €50.00" in over["reason"]
-    ok = submit(svc, dev, actor="assistant", agent_token=token, cents=2_000)
-    assert ok["decision"] == "allow"
+    # presenting it out of scope burned it: it can't be replayed for an in-scope amount later
     reused = submit(svc, dev, actor="assistant", agent_token=token, cents=2_000)
     assert reused["decision"] == "step_up" and "already used" in reused["reason"]
+
+    fresh = delegate(svc, dev, cents=5_000, payeeId="ana")
+    assert submit(svc, dev, actor="assistant", agent_token=fresh, cents=2_000)["decision"] == "allow"
+    again = submit(svc, dev, actor="assistant", agent_token=fresh, cents=2_000)
+    assert again["decision"] == "step_up" and "already used" in again["reason"]
+
+
+def test_token_presented_on_a_blocked_transfer_is_burned(make_service, device):
+    svc = make_service(mock_verdict="device_ok")
+    dev = signed_in(svc, device)
+    dev.rasp["emulator"] = False
+    token = delegate(svc, dev, cents=5_000, payeeId="ana")
+    blocked = submit(svc, dev, actor="assistant", agent_token=token, cents=2_000, payee="mallory")
+    assert blocked["decision"] == "block"
+    again = submit(svc, dev, actor="assistant", agent_token=token, cents=2_000)
+    assert again["decision"] == "step_up" and "already used" in again["reason"]
+
+
+def test_mock_mode_without_client_hash_is_a_missing_verdict(make_service, device):
+    """A proxy edits the body and drops clientRequestHash: no simulated verdict, step-up."""
+    svc = make_service(mock_verdict="device_ok")
+    dev = signed_in(svc, device)
+    dev.rasp["emulator"] = False
+    body = dev.transfer_body(cents=2_000)
+    body["transfer"]["amountCents"] = 90_000
+    del body["clientRequestHash"]
+    out = svc.submit_transfer(body, dev.headers())
+    assert out["decision"] == "step_up" and "no request hash" in out["reason"]
+    assert svc.balance(dev.headers())["balanceCents"] == 245_000
 
 
 

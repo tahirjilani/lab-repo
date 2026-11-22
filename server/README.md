@@ -6,10 +6,12 @@ FastAPI, in-memory state, one lab account (`acc-001`, €2,450.00), reset on res
 ```bash
 # from the repo root
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r server/requirements.txt
+pip install -r server/requirements.txt          # Windows: .venv\Scripts\Activate.ps1 instead of source …
 pytest server
 uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
+
+Real Play Integrity tokens (`DW_VERDICT_MODE=google`) also need `pip install -r server/requirements-google.txt`; the lab doesn't.
 
 The app talks to it by default (`demowallet.apiBaseUrl=http://10.0.2.2:8000`; the emulator's 10.0.2.2 is your Mac's localhost).
 Full setup: [`docs/setup.md`](../docs/setup.md).
@@ -35,7 +37,7 @@ curl -s localhost:8000/api/agent-tokens -H "Authorization: Bearer $SESSION" -H '
   -d '{"agentId":"demowallet-assistant/1.0","action":"transfer","maxAmountCents":5000,"payeeId":"ana","ttlSeconds":300}'
 ```
 
-`dwat1.<claims>.<HMAC-SHA256>` with `account, agent_id, action, max_amount_cents, currency, payee_id?, iat, exp`. Max amount is capped by the agent limit (deck slide 18, `DW_AGENT_LIMIT_CENTS`, default €100), TTL by `DW_AGENT_TOKEN_MAX_TTL_SECONDS` (600). Single use. Out of scope (amount, payee, action, agent id) or expired → step-up; forged or another account's token → block. The app asks you to **Allow** before the assistant acts, mints the token with `X-Actor: user` (payee-scoped, `min(amount, agent limit)`, 300 s), shows it in the chat, then sends it as `X-Agent-Token`. Denying sends nothing. "Send €200 to Ana" gets a €100 token and is out of scope: step-up (55) with `device_ok`, block (90) with the default `emulator` profile, where the out-of-scope points land on top of the failed verdict.
+`dwat1.<claims>.<HMAC-SHA256>` with `account, agent_id, action, max_amount_cents, currency, payee_id?, iat, exp`. Max amount is capped by the agent limit (deck slide 18, `DW_AGENT_LIMIT_CENTS`, default €100), TTL by `DW_AGENT_TOKEN_MAX_TTL_SECONDS` (600). **Single use**: a token is burned the first time it's presented with a valid signature, in scope or not, even if that transfer is blocked, so a €100 grant shown on a €200 transfer can't be replayed for €100 later. Out of scope (amount, payee, action, agent id) or expired → step-up; forged or another account's token → block. The app asks you to **Allow** before the assistant acts, mints the token with `X-Actor: user` (payee-scoped, `min(amount, agent limit)`, 300 s), shows it in the chat, then sends it as `X-Agent-Token`. Denying sends nothing. "Send €200 to Ana" gets a €100 token and is out of scope: step-up (55) with `device_ok`, block (90) with the default `emulator` profile, where the out-of-scope points land on top of the failed verdict.
 
 ## Mock verdict mode (default) — no Google Cloud needed
 
@@ -56,9 +58,18 @@ curl -s localhost:8000/api/lab/decisions | python3 -m json.tool
 python -m server.mock_token --profile device_ok --canonical "v1|acc-001|ana|100|EUR|00ff|user"   # explicit token
 ```
 
+If the body has no well-formed `clientRequestHash` (64 lowercase hex), there's nothing to bind a simulated verdict to: it counts as a missing verdict (step-up). Otherwise a proxy could edit the body, drop the field and get a verdict for the edited body. With real tokens this doesn't arise: the hash is inside Google's signed verdict.
+
 Mock tokens are unsigned — lab only. The `/api/lab/*` endpoints have no auth; keep the server on 127.0.0.1.
 
 **Real tokens:** `DW_VERDICT_MODE=google`, `GOOGLE_APPLICATION_CREDENTIALS=service-account.json` (Cloud project linked in Play Console; `service-account*.json` is git-ignored), and the app built with `-Pdemowallet.cloudProjectNumber=<number>`. Calls `playintegrity.googleapis.com/v1/com.demo.wallet:decodeIntegrityToken`.
+
+## Lab simplifications (say them out loud if asked)
+
+- **The grant is a tap.** `/api/agent-tokens` trusts the `X-Actor: user` header, which the client sets. Any code holding the session could mint a grant. In production, mint grants only against a biometric-signed consent (the same Keystore key and `BiometricPrompt` flow as step-up), or on a separate, user-only channel.
+- **The step-up key is registered at every sign-in, unattested.** The server accepts whatever public key the app sends at login, so a client with its own software key could confirm its own step-ups. The *binding* (signature over challenge + transfer hash) is real; the key's provenance isn't checked. In production: register the key once at enrollment and verify its Android key attestation chain (hardware-backed, user-auth-bound) before trusting it.
+- **No behavior layer on the server.** A script that calls the API as `actor=user` on a clean, certified phone isn't caught here; that's what Lab 3's behavior layer adds.
+- **Mock verdicts** (above) and an in-memory, single-account state.
 
 ## Scenarios (asserted in `tests/test_service.py`)
 

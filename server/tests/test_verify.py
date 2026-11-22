@@ -113,10 +113,17 @@ def test_error_without_token_steps_up_in_none_profile_and_google_mode():
 
 @pytest.mark.lab2
 def test_mock_mode_simulates_a_verdict_bound_to_the_client_hash():
-    assert "verified" in codes(assess({"token": None, "error": "NOT_CONFIGURED"}, profile="device_ok"))
+    assert "verified" in codes(assess({"token": None, "error": "NOT_CONFIGURED"}, client_hash=tx().request_hash(),
+                                      profile="device_ok"))
     # body changed after the device hashed it → the simulated token no longer matches
     tampered = assess({"token": None, "error": "NOT_CONFIGURED"}, client_hash="ab" * 32, profile="device_ok")
     assert [s.code for s in tampered] == ["hash_mismatch"]
+
+
+def test_mock_mode_needs_a_client_hash_to_simulate():
+    for bad in (None, "", "xyz", "AB" * 32):
+        [s] = assess({"token": None, "error": "NOT_CONFIGURED"}, client_hash=bad, profile="device_ok")
+        assert (s.code, s.floor) == ("missing", STEP_UP)
 
 
 @pytest.mark.lab2

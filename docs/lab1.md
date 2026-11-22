@@ -17,6 +17,7 @@ This lab is a demo on the speaker's machine. Follow along on screen; you don't n
    ```
 
 3. Two terminals at the repo root with the venv active: one for the server, one for Frida.
+4. For slide 24 (after Lab 2) you'll reinstall the **main** build on this same emulator: see [docs/lab2.md § Slide 24](lab2.md#slide-24--the-same-attack-after-lab-2-presenter).
 
 ## 1. The app refuses to run (1 min)
 
@@ -34,18 +35,30 @@ Start the server with no server-side checks. This is what many apps effectively 
 DW_SERVER_CHECKS= uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
 
+<details><summary>Windows (PowerShell)</summary>
+
+```powershell
+$env:DW_SERVER_CHECKS="none"; uvicorn server.app:app --host 127.0.0.1 --port 8000
+# later, for the "after" run: Remove-Item Env:DW_SERVER_CHECKS
+```
+</details>
+
 Launch the app under Frida with the bypass script:
 
 ```bash
 frida -U -f com.demo.wallet -l lab1/bypass.js
 ```
 
-<!-- =========================================================================== -->
-<!-- TODO(Tahir): lab1/bypass.js: the presenter's Frida script, written by Tahir. -->
-<!-- Show it on screen here. It hooks com.demo.wallet.Guard.isRooted() → false.  -->
-<!-- =========================================================================== -->
+The script, [`lab1/bypass.js`](../lab1/bypass.js):
 
-> **Script: `lab1/bypass.js`** (written by Tahir; added before the session). It hooks `com.demo.wallet.Guard.isRooted()` to return `false`. See [`lab1/README.md`](../lab1/README.md) for what it targets.
+```js
+Java.perform(() => {
+  const Guard = Java.use("com.demo.wallet.Guard");
+  Guard.isRooted.implementation = () => false;   // the whole defense, replaced
+});
+```
+
+(The file in the repo also logs each call, so you can watch it fire.)
 
 The root screen is gone. Sign in, then in the assistant:
 
@@ -57,7 +70,7 @@ Note the signal chips at the top of the home screen: `root ✓` (the hook hid it
 
 ## 3. "After": the server decides (4 min)
 
-Stop the server (Ctrl-C) and start it with all checks on:
+Stop the server (Ctrl-C) and start it with all checks on (PowerShell: `Remove-Item Env:DW_SERVER_CHECKS` first):
 
 ```bash
 uvicorn server.app:app --host 127.0.0.1 --port 8000
@@ -87,7 +100,7 @@ curl -s localhost:8000/api/lab/decisions | python3 -m json.tool
 
 - A local check is a speed bump. Anything that runs on the device can be changed by whoever controls the device.
 - Report signals, don't act on them locally. The app sent `hook=1` in both runs; only the server's decision changed.
-- Lab 2 adds the evidence this branch is missing: a Play Integrity verdict bound to the exact transfer.
+- Lab 2 adds the evidence this branch is missing: a Play Integrity verdict bound to the exact transfer. Slide 24 re-runs this same attack against the Lab 2 build.
 
 ## Reset
 

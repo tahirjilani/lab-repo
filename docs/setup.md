@@ -2,7 +2,7 @@
 
 Do this before the session: it needs downloads that conference Wi-Fi won't enjoy. Budget 30–45 minutes, most of it waiting for Android Studio and a system image.
 
-Commands are for macOS. On Linux and Windows the steps are the same; only the paths differ.
+Commands are for macOS (Linux is the same). **Windows:** use PowerShell; the differences are listed in [Windows (PowerShell)](#windows-powershell) at the end.
 
 ## 1. Get the repo
 
@@ -64,6 +64,8 @@ pytest server                                         # should pass (some tests 
 uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
 
+`server/requirements.txt` is all the lab needs. (`server/requirements-google.txt` adds the Google libraries for decoding *real* Play Integrity tokens; skip it.)
+
 The window prints every request and response (passwords and tokens redacted), plus one line per decision. Keep it visible: it's half the demo. `DW_LOG_HTTP=compact` shortens it; `off` silences it.
 
 State lives in memory: one account (`acc-001`, €2,450.00), reset whenever you restart the server.
@@ -72,7 +74,7 @@ Useful settings (environment variables; full list in [`server/README.md`](../ser
 
 | Variable | Default | Use it for |
 |---|---|---|
-| `DW_SERVER_CHECKS` | `integrity,rasp,agent` | Set it **empty** (`DW_SERVER_CHECKS= uvicorn …`) for Lab 1's "before": the server trusts the client. |
+| `DW_SERVER_CHECKS` | `integrity,rasp,agent` | Set it **empty** (`DW_SERVER_CHECKS= uvicorn …`) or to `none` for Lab 1's "before": the server trusts the client. |
 | `DW_MOCK_VERDICT` | `emulator` | Which Play Integrity verdict to simulate (see below). |
 | `DW_AGENT_LIMIT_CENTS` | `10000` | The most a user can delegate to the assistant (€100). Keep equal to the app's `demowallet.agentLimitCents`. |
 
@@ -165,3 +167,21 @@ frida-ps -U | head                    # lists processes: it works
 | `Unsupported class file major version` / JDK errors | Point `JAVA_HOME` at JDK 17+ (step 2). |
 | `SDK location not found` | Create `android/local.properties` or set `ANDROID_HOME` (step 2). |
 | `frida` can't attach / version mismatch | `frida --version` and frida-server must match exactly. Run `adb root` before starting frida-server. |
+
+## Windows (PowerShell)
+
+Same steps; these lines differ.
+
+| macOS / Linux | Windows PowerShell |
+|---|---|
+| `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"` | `$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"` |
+| `sdk.dir=/Users/<you>/Library/Android/sdk` | `sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk` (escaped, in `android/local.properties`) |
+| `export PATH="$HOME/Library/Android/sdk/platform-tools:$PATH"` | `$env:Path += ";$env:LOCALAPPDATA\Android\Sdk\platform-tools"` |
+| `python3 -m venv .venv && source .venv/bin/activate` | `py -m venv .venv; .venv\Scripts\Activate.ps1` (if blocked: `Set-ExecutionPolicy -Scope Process Bypass`) |
+| `./gradlew installDebug` | `.\gradlew.bat installDebug` |
+| `DW_SERVER_CHECKS= uvicorn server.app:app …` | `$env:DW_SERVER_CHECKS="none"; uvicorn server.app:app …` (PowerShell can't hold an empty variable, so use `none`; undo: `Remove-Item Env:DW_SERVER_CHECKS`) |
+| `DW_MOCK_VERDICT=device_ok uvicorn …` | `$env:DW_MOCK_VERDICT="device_ok"; uvicorn …` |
+| `curl -s localhost:8000/api/lab/mock-verdict -H 'Content-Type: application/json' -d '{"profile":"device_ok"}'` | `Invoke-RestMethod localhost:8000/api/lab/mock-verdict -Method Post -ContentType 'application/json' -Body '{"profile":"device_ok"}'` |
+| `python3 -m json.tool` | `ConvertTo-Json -Depth 6` (after `Invoke-RestMethod`) |
+| `unxz frida-server-*.xz` | extract it with 7-Zip |
+| `adb shell "/data/local/tmp/frida-server >/dev/null 2>&1 &"` | same line works in PowerShell |

@@ -82,7 +82,8 @@ def test_single_use(tokens):
 ])
 def test_out_of_scope_steps_up(tokens, kw, fragment):
     [s], g = assess(tokens, mint(tokens, payee_id="ana"), **kw)
-    assert s.code == "out_of_scope" and s.floor == STEP_UP and fragment in s.detail and g is None
+    # the grant comes back anyway so the caller burns it: single use, in scope or not
+    assert s.code == "out_of_scope" and s.floor == STEP_UP and fragment in s.detail and g is not None
 
 
 def test_balance_token_cannot_move_money(tokens):

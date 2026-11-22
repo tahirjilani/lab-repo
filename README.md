@@ -17,7 +17,7 @@ The talk's thesis in one line: **authentication is a moment, risk is continuous.
 | Lab | Time | What you do | Branch | Guide |
 |---|---|---|---|---|
 | 1 · Break it | 10 min, watch-along | Bypass the app's root check with Frida and push a transfer through the assistant, then watch the server catch it | `lab1-start` | [docs/lab1.md](docs/lab1.md) |
-| 2 · Harden it | 12 min | Bind a Play Integrity token to the transfer hash in the app, verify it on the server | `lab2-start` | [docs/lab2.md](docs/lab2.md) |
+| 2 · Harden it | 12 min | Bind a Play Integrity token to the transfer hash in the app, verify it on the server. **No emulator? Part B is Python only.** | `lab2-start` | [docs/lab2.md](docs/lab2.md) |
 | 3 · Score it | 18 min, browser only | Build a risk score, tune thresholds, compare false positives per cohort | any (Colab) | [docs/lab3.md](docs/lab3.md) |
 
 ## Branches
@@ -35,6 +35,7 @@ Every branch carries `server/` and `lab3/`, so you can do any lab from any branc
 
 - **Android Studio** (recent stable) with the Android SDK and an emulator. JDK 17+: Android Studio's bundled JBR works.
 - **Python 3.9+** for the server.
+- **Lab 2 without Android:** just Python: Part B is a server-side exercise with tests.
 - **Lab 1 only:** `frida-tools` (pinned in [`lab1/requirements.txt`](lab1/requirements.txt)) and a matching `frida-server`.
 - **Lab 3 only:** a Google account for Colab. Nothing to install.
 
@@ -48,13 +49,14 @@ Full walkthrough with emulator images, fingerprint enrollment and troubleshootin
 git clone https://github.com/tahirjilani/lab-repo.git && cd lab-repo
 
 # 1. Server (terminal 1)
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate     # Windows: py -m venv .venv; .venv\Scripts\Activate.ps1
 pip install -r server/requirements.txt
 pytest server
 uvicorn server.app:app --host 127.0.0.1 --port 8000
 
 # 2. App (terminal 2, emulator running)
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"   # macOS
+# Windows (PowerShell): see docs/setup.md § Windows
 cd android
 ./gradlew assembleDebug testDebugUnitTest
 ./gradlew installDebug

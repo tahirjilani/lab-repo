@@ -114,7 +114,8 @@ class GoogleDecoder:
     """Decodes real tokens with playintegrity.googleapis.com (service-account credentials).
 
     Credentials come from GOOGLE_APPLICATION_CREDENTIALS (a service account in the Cloud
-    project linked to the app in Play Console). Needs `google-auth` and `requests`.
+    project linked to the app in Play Console). Needs `google-auth` and `requests`:
+    pip install -r server/requirements-google.txt
     """
 
     SCOPE = "https://www.googleapis.com/auth/playintegrity"
@@ -261,8 +262,14 @@ def assess_integrity(integrity: Optional[Dict[str, Any]], transfer: Transfer, cl
         if mode == "mock" and mock_profile != "none":
             # Simulate the token the device would have got: bound to the hash IT computed.
             # If the body was altered in transit, that no longer matches our recomputed hash.
-            bound = client_hash if isinstance(client_hash, str) and client_hash else expected
-            payload = mock_payload(mock_profile, bound, package_name, now_ms)
+            # No (well-formed) clientRequestHash → nothing to bind a simulated verdict to, so it
+            # counts as a missing verdict. Otherwise a proxy could edit the body, drop the field
+            # and get a verdict "bound" to the edited body. (With real tokens the hash is inside
+            # Google's signed verdict, so the client can't influence it at all.)
+            if not (isinstance(client_hash, str) and len(client_hash) == 64
+                    and all(c in "0123456789abcdef" for c in client_hash)):
+                return [_sig("missing", 30, STEP_UP, "No integrity verdict (no request hash to bind it to).")]
+            payload = mock_payload(mock_profile, client_hash, package_name, now_ms)
         else:
             err = str(integrity.get("error") or "unknown").split(":")[0][:40]
             return [_sig("missing", 30, STEP_UP, f"No integrity verdict ({err}).")]

@@ -177,10 +177,10 @@ class WalletService:
                 signals += agent_signals
 
             decision, score = decide(signals)
+            if grant:
+                self.tokens.consume(grant)  # single use: burned by any presentation, even a blocked one
             if decision != BLOCK:
                 self._nonces.add(t.nonce)
-                if grant:
-                    self.tokens.consume(grant)
 
             out: Dict[str, Any] = {"decision": decision, "transferId": tx_id, "riskScore": score,
                                    "requestHash": t.request_hash(),

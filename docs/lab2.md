@@ -11,15 +11,29 @@
 
 Do Part B first if you're short on time: it's Python, needs no rebuild, and `pytest` tells you when it's right.
 
+### No Android Studio? Do Part B only (Python, ~5 min)
+
+Most laptops won't have an emulator ready, and conference Wi-Fi won't download one. You don't need it: Part B is plain Python and its tests are the checker.
+
+```bash
+git clone https://github.com/tahirjilani/lab-repo.git && cd lab-repo
+git checkout lab2-start
+python3 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\Activate.ps1
+pip install -r server/requirements.txt                   # five small packages, no Google libraries
+pytest server --lab2                                     # 7 failing tests = your to-do list
+```
+
+Then open `server/verify.py`, fill in B1–B3 (below) and re-run `pytest server --lab2` until it's green. Watch the speaker's screen for Part A and the re-run on slide 24.
+
 Stuck or out of time? `main` is the solution: `git diff lab2-start main -- android/app/src/main/java/com/demo/wallet/WalletApi.kt server/verify.py`.
 
-## 0. Start state (2 min)
+## 0. Start state (2 min, emulator users)
 
 Normal (**Google Play**) emulator, set up as in [setup.md](setup.md).
 
 ```bash
 git checkout lab2-start
-uvicorn server.app:app --host 127.0.0.1 --port 8000          # terminal 1, venv active
+uvicorn server.app:app --host 127.0.0.1 --port 8000          # terminal 1, venv active (Windows: .venv\Scripts\Activate.ps1)
 cd android && ./gradlew installDebug && cd ..                 # terminal 2
 adb shell am start -n com.demo.wallet/.MainActivity
 ```
@@ -93,7 +107,34 @@ Seven tests fail before you start and all pass when you're done. Two of them are
 - `test_request_hash_mismatch_is_blocked`: a genuine token from a €1 transfer lifted onto a €200 one → **block**, money stays put.
 - `test_body_altered_in_transit_is_blocked`: a proxy changes €20 to €2,000 after the app hashed it → **block**.
 
+  In this lab the verdict is simulated, so the server binds it to the hash the app reports (`clientRequestHash`); a body without that hash gets no simulated verdict at all (step-up). With real tokens the hash sits inside Google's signed verdict and the client can't touch it.
+
 Restart uvicorn (Ctrl-C, start again) to load your code; the verdict profile goes back to `emulator`, and you have to sign in again. The honest app's transfers behave the same as before: the checks only bite when something doesn't match.
+
+## Slide 24 · the same attack, after Lab 2 (presenter)
+
+Re-run Lab 1's attack against the hardened build. Do the reinstall while the room works on Part B.
+
+On the **rooted (Google APIs)** emulator from Lab 1, with frida-server still running:
+
+```bash
+git stash                                                # only if you edited lab2-start live
+git checkout main                                        # the Lab 2 solution: binding on
+cd android && ./gradlew installDebug && cd ..            # ~1 min; replaces the lab1-start build
+uvicorn server.app:app --host 127.0.0.1 --port 8000      # all checks on, profile "emulator"
+frida -U -f com.demo.wallet -l lab1/bypass.js
+```
+
+1. Sign in. **"Send €200 to Ana"** → **Allow**. **Blocked, score 100**: instrumentation detected (40) + device fails integrity, no device label (35) + €200 outside the €100 delegation (30). The hook still hides root; it just doesn't matter.
+2. Pretend it's a certified phone with the app from Play, **Frida still attached**:
+
+   ```bash
+   curl -s localhost:8000/api/lab/mock-verdict -H 'Content-Type: application/json' -d '{"profile":"device_ok"}'
+   ```
+
+3. **"Send €200 to Ana"** → **Allow** again. **Step-up, score 70** (hook 40 + out of scope 30). Confirm with the fingerprint (`adb -e emu finger touch 1`) and it goes through. The honest-looking device no longer blocks, but the hook alone still forces a confirmation.
+
+Don't stop Frida for this: on the Google APIs image the app would go straight back to "This device appears to be rooted". And don't do it on the `lab1-start` build: that build sends no verdict at all, so switching the profile changes nothing (it stays at block 100).
 
 ## The other evidence: RASP flags (look, don't code)
 

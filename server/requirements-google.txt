@@ -1,0 +1,4 @@
+# Only for DW_VERDICT_MODE=google (decoding real Play Integrity tokens). Not needed for the lab.
+-r requirements.txt
+google-auth>=2.29
+requests>=2.31

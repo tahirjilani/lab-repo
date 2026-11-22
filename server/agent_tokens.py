@@ -125,7 +125,8 @@ def _eur(cents: int) -> str:
 def assess_agent(*, body_actor: str, header_actor: Optional[str], header_agent_id: Optional[str],
                  token: Optional[str], account: str, payee_id: str, amount_cents: int, currency: str,
                  tokens: AgentTokens) -> Tuple[List[Signal], Optional[AgentGrant]]:
-    """Signals for the agent-identity layer. Returns the grant to consume if the transfer goes ahead."""
+    """Signals for the agent-identity layer. Returns the grant whenever a genuine token for this
+    account was presented: the caller consumes it (single use), whatever the decision."""
     out: List[Signal] = []
     if header_actor and header_actor != body_actor:
         out.append(_sig("actor_mismatch", 20, STEP_UP,
@@ -159,6 +160,8 @@ def assess_agent(*, body_actor: str, header_actor: Optional[str], header_agent_i
         scope.append(f"{_eur(amount_cents)} exceeds the delegated {_eur(g.max_amount_cents)}")
     if scope:
         out.append(_sig("out_of_scope", 30, STEP_UP, "Outside the assistant's delegation: " + "; ".join(scope) + "."))
-        return out, None
+        # Still return the grant: a token is single use however it's used, so presenting it out of
+        # scope burns it too (otherwise a €100 grant shown on a €200 transfer could be replayed later).
+        return out, g
     out.append(_sig("delegated", 10, None, f"Assistant acting within its delegation (up to {_eur(g.max_amount_cents)})."))
     return out, g

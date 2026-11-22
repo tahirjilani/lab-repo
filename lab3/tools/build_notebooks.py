@@ -363,7 +363,7 @@ df[a11y_sessions].groupby("cohort")[cols].median().round(2)
 md("""
 ## 4 · Fix it  *(slide 26)*
 
-Three fixes, the same ones you'd use for any fairness problem in ML:
+Three fixes, the same ones you'd use for any fairness problem in ML. They're already written: **switch them on** in TODO 4 and watch the per-cohort table change.
 
 1. **Separate features.** Raw-touch tells (`regular_taps`, `straight_swipes`) measure the screen reader, not the person, when actions arrive through accessibility: only count them on raw-touch sessions. Being accessibility-driven isn't a tell on its own; *how* the session behaves is (speed, injected text, a phone that never moves). And a declared assistant with a valid agent token is *supposed* to be fast.
 2. **Never block on behavior alone.** If the device, RASP and agent layers wouldn't challenge a session, behavior can raise it to step-up at most. Step-up is a fingerprint tap; a block is a lost customer.
@@ -371,38 +371,47 @@ Three fixes, the same ones you'd use for any fairness problem in ML:
 """)
 
 todo(2, """
-# ✏️ TODO 4 — rewrite the behavior layer with the fixes above.
-#    t = tells(df); a11y = df["a11y_action_ratio"] > 0.5 ; declared = assistant with a valid token
-#    Hint: multiply a tell by a condition, e.g. 20 * (t["regular_taps"] & ~a11y)
-def behavior_points_v2(df):
-    t = tells(df)
-    a11y = t["a11y_driven"]
-    declared = (df["actor"] == "assistant") & (df["agent_token"] == "valid")
-    points = behavior_points(df)          # ← replace with your fixed version
-    return points.clip(upper=BEHAVIOR_CAP).astype(int)
-
-NO_BLOCK_ON_BEHAVIOR_ALONE = False        # ← set to True
-MY_BANDS_V2 = MY_BANDS                    # ← re-tune after the fix
+# ✏️ TODO 4 — switch the fixes on (True), one at a time, and re-run this cell and the two below.
+FIX_SEPARATE_FEATURES      = False   # 1: raw-touch tells only count on raw-touch sessions; being
+                                     #    accessibility-driven isn't a tell, being fast/injected is
+FIX_DECLARED_AGENT_IS_FAST = False   # 1: a declared assistant with a valid agent token may be fast
+NO_BLOCK_ON_BEHAVIOR_ALONE = False   # 2: behavior can raise a session to step-up, never to block
+MY_BANDS_V2 = MY_BANDS               # 3: re-tune after the fixes, e.g. (25, 45, 90)
 """, """
-# ✏️ TODO 4 — rewrite the behavior layer with the fixes above.
-#    t = tells(df); a11y = df["a11y_action_ratio"] > 0.5 ; declared = assistant with a valid token
-#    Hint: multiply a tell by a condition, e.g. 20 * (t["regular_taps"] & ~a11y)
+# ✏️ TODO 4 — switch the fixes on (True), one at a time, and re-run this cell and the two below.
+FIX_SEPARATE_FEATURES      = True    # 1: raw-touch tells only count on raw-touch sessions; being
+                                     #    accessibility-driven isn't a tell, being fast/injected is
+FIX_DECLARED_AGENT_IS_FAST = True    # 1: a declared assistant with a valid agent token may be fast
+NO_BLOCK_ON_BEHAVIOR_ALONE = True    # 2: behavior can raise a session to step-up, never to block
+MY_BANDS_V2 = (25, 45, 90)           # 3: step-up a little earlier: wins back bots, few extra people
+""")
+
+code("""
+# The fixed behavior layer, driven by your switches and your TODO 1 weights. Read it; no need to edit.
 def behavior_points_v2(df):
     t = tells(df)
     a11y = t["a11y_driven"]
     declared = (df["actor"] == "assistant") & (df["agent_token"] == "valid")
+    W = WEIGHTS
+    if not FIX_SEPARATE_FEATURES:
+        if FIX_DECLARED_AGENT_IS_FAST:
+            t = t.assign(fast_confirm=t["fast_confirm"] & ~declared)
+        points = sum(w * t[name] for name, w in W.items())
+        return pd.Series(points, index=df.index).clip(upper=BEHAVIOR_CAP).astype(int)
+
     raw = ~a11y
     # on accessibility-driven sessions, "fast" means faster than anyone listening to a screen reader (8 s)
-    fast = ~declared & (df["time_to_confirm_s"] < np.where(a11y, 8, 3))
-    points = (20 * (t["regular_taps"] & raw)
-              + 10 * (t["straight_swipes"] & raw)
-              + np.where(a11y, 20, 15) * fast
-              + 15 * t["phone_not_moving"]
-              + np.where(a11y, 15, 10) * t["injected_text"])
+    fast = df["time_to_confirm_s"] < np.where(a11y, 8, 3)
+    if FIX_DECLARED_AGENT_IS_FAST:
+        fast = fast & ~declared
+    # a11y-driven isn't a tell by itself: its points move onto speed, the thing that separates
+    # a bot from a person listening to a screen reader; injected text weighs a bit more there too
+    points = (W["regular_taps"] * (t["regular_taps"] & raw)
+              + W["straight_swipes"] * (t["straight_swipes"] & raw)
+              + np.where(a11y, W["a11y_driven"], W["fast_confirm"]) * fast
+              + W["phone_not_moving"] * t["phone_not_moving"]
+              + np.where(a11y, W["injected_text"] + 5, W["injected_text"]) * t["injected_text"])
     return pd.Series(points, index=df.index).clip(upper=BEHAVIOR_CAP).astype(int)
-
-NO_BLOCK_ON_BEHAVIOR_ALONE = True
-MY_BANDS_V2 = (25, 45, 90)                # step-up a little earlier: wins back bots, few extra people
 """)
 
 code("""

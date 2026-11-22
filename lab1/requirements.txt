@@ -3,4 +3,4 @@
 # still bundle it, so `frida -U -f com.demo.wallet -l lab1/bypass.js` with Java.perform works.
 # frida-server on the emulator must be EXACTLY the version `frida --version` prints.
 frida-tools>=14
-frida>=17,<18
+frida>=17.7,<18   # 17.7+ fixes spawning (-f) on newer Android versions
