@@ -10,6 +10,30 @@ from server.service import WalletService
 
 NOW = 1_800_000_000.0  # fixed clock, seconds
 
+# Lab 2 switch. False on main (the solution). lab2-start sets it to True: the LAB 2 checks in
+# server/verify.py are the exercise there, so tests marked `lab2` are skipped by `pytest server`
+# and run with `pytest server --lab2` once you've filled in the TODOs (they're your checker).
+LAB2_IS_EXERCISE = False
+
+
+def pytest_addoption(parser):
+    parser.addoption("--lab2", action="store_true", default=False,
+                     help="run the Lab 2 tests (the checks you write in server/verify.py)")
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "lab2: needs the LAB 2 checks in server/verify.py")
+
+
+def pytest_collection_modifyitems(config, items):
+    if not LAB2_IS_EXERCISE or config.getoption("--lab2"):
+        return
+    skip = pytest.mark.skip(reason="Lab 2 exercise: fill in the LAB 2 TODOs in server/verify.py, "
+                                   "then run `pytest server --lab2` (docs/lab2.md)")
+    for item in items:
+        if "lab2" in item.keywords:
+            item.add_marker(skip)
+
 
 class Clock:
     def __init__(self, t: float = NOW):

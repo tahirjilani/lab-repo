@@ -49,17 +49,20 @@ def test_device_ok_verdict_passes():
     assert codes(check("device_ok")) == {"verified", "testing_response"}
 
 
+@pytest.mark.lab2
 def test_hash_bound_to_other_transfer_is_blocked():
     other = tx(amountCents=99900).request_hash()
     [s] = check("device_ok", hash_=other)
     assert (s.code, s.floor) == ("hash_mismatch", BLOCK)
 
 
+@pytest.mark.lab2
 def test_token_for_other_package_is_blocked():
     [s] = check("device_ok", package="com.evil.app")
     assert (s.code, s.floor) == ("package_mismatch", BLOCK)
 
 
+@pytest.mark.lab2
 def test_stale_and_future_verdicts_step_up():
     assert "stale" in codes(check("device_ok", ts=NOW_MS - 301_000))
     assert "stale" in codes(check("device_ok", ts=NOW_MS + 120_000))
@@ -108,6 +111,7 @@ def test_error_without_token_steps_up_in_none_profile_and_google_mode():
     assert s.code == "missing" and "REQUEST" in s.detail
 
 
+@pytest.mark.lab2
 def test_mock_mode_simulates_a_verdict_bound_to_the_client_hash():
     assert "verified" in codes(assess({"token": None, "error": "NOT_CONFIGURED"}, profile="device_ok"))
     # body changed after the device hashed it → the simulated token no longer matches
@@ -115,6 +119,7 @@ def test_mock_mode_simulates_a_verdict_bound_to_the_client_hash():
     assert [s.code for s in tampered] == ["hash_mismatch"]
 
 
+@pytest.mark.lab2
 def test_explicit_mock_token_is_decoded_and_checked():
     t = tx()
     good = mint_mock_token(mock_payload("device_ok", t.request_hash(), PKG, NOW_MS))
