@@ -1,5 +1,6 @@
 package com.demo.wallet.backend
 
+import com.demo.wallet.AgentGrant
 import com.demo.wallet.Challenge
 import com.demo.wallet.Decision
 import com.demo.wallet.Session
@@ -40,7 +41,33 @@ class HttpBackend(baseUrl: String) : Backend {
                 .put("token", i.token ?: JSONObject.NULL)
                 .put("error", i.error ?: JSONObject.NULL))
         }
-        return outcome(call("POST", "/api/transfers", session, t.actor, request.rasp, body))
+        val extra = request.agentToken?.let { mapOf(WalletApi.HEADER_AGENT_TOKEN to it) }.orEmpty()
+        return outcome(call("POST", "/api/transfers", session, t.actor, request.rasp, body, extra))
+    }
+
+    override fun mintAgentToken(
+        session: Session, agentId: String, payeeId: String, maxAmountCents: Long, ttlSeconds: Int,
+        rasp: RaspReport,
+    ): AgentGrant {
+        val body = JSONObject()
+            .put("agentId", agentId)
+            .put("action", "transfer")
+            .put("maxAmountCents", maxAmountCents)
+            .put("payeeId", payeeId)
+            .put("ttlSeconds", ttlSeconds)
+            .put("currency", "EUR")
+        // Always the user: the server refuses (403) a grant requested with X-Actor: assistant.
+        val r = call("POST", "/api/agent-tokens", session, Actor.USER, rasp, body)
+        return AgentGrant(
+            token = r.getString("agentToken"),
+            jti = r.optString("jti"),
+            agentId = r.optString("agentId", agentId),
+            action = r.optString("action", "transfer"),
+            maxAmountCents = r.getLong("maxAmountCents"),
+            payeeId = if (r.isNull("payeeId")) null else r.optString("payeeId"),
+            issuedAtSeconds = r.optLong("issuedAt"),
+            expiresAtSeconds = r.optLong("expiresAt"),
+        )
     }
 
     override fun confirm(
@@ -61,6 +88,7 @@ class HttpBackend(baseUrl: String) : Backend {
 
     private fun call(
         method: String, path: String, session: Session?, actor: Actor, rasp: RaspReport, body: JSONObject?,
+        extraHeaders: Map<String, String> = emptyMap(),
     ): JSONObject {
         val conn = (URL(base + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
@@ -71,6 +99,7 @@ class HttpBackend(baseUrl: String) : Backend {
             setRequestProperty(WalletApi.HEADER_ACTOR, actor.wire)
             if (actor == Actor.ASSISTANT) setRequestProperty(WalletApi.HEADER_AGENT_ID, WalletApi.ASSISTANT_AGENT_ID)
             session?.let { setRequestProperty("Authorization", "Bearer ${it.token}") }
+            extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
             if (body != null) {
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")

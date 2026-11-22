@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.demo.wallet.AgentGrant
 import com.demo.wallet.Decision
 import com.demo.wallet.Guard
 import com.demo.wallet.TransferOutcome
@@ -24,8 +25,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.Signature
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
-enum class Speaker { USER, ASSISTANT, TOOL }
+enum class Speaker { USER, ASSISTANT, TOOL, GRANT }
 data class ChatMessage(val from: Speaker, val text: String)
 
 /** A transfer the server wants the user to confirm. Everything shown on the step-up screen. */
@@ -41,6 +45,14 @@ data class PendingStepUp(
 ) {
     /** The action as a sentence, e.g. "Send €200.00 to Ana". */
     val actionLabel: String get() = "Send ${formatEuros(amountCents)} to ${payee.name}"
+}
+
+/**
+ * The assistant wants to act: what the user is asked to delegate before it does.
+ * [scopeCents] is what the token will cover: the requested amount, capped at the agent limit.
+ */
+data class GrantRequest(val payee: Payee, val amountCents: Long, val scopeCents: Long, val limitCents: Long) {
+    val exceedsLimit: Boolean get() = amountCents > scopeCents
 }
 
 sealed interface Screen {
@@ -63,6 +75,8 @@ data class UiState(
     ),
     val integrityBinding: Boolean = false,
     val backendLabel: String = "",
+    /** Non-null while the consent card is showing. */
+    val pendingGrant: GrantRequest? = null,
 )
 
 class WalletViewModel(app: Application) : AndroidViewModel(app) {
@@ -136,7 +150,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     fun ask(text: String) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() || _state.value.busy) return
+        if (trimmed.isEmpty() || _state.value.busy || _state.value.pendingGrant != null) return
         say(Speaker.USER, trimmed)
         when (val intent = IntentParser.parse(trimmed)) {
             is AssistantIntent.SendMoney -> {
@@ -145,8 +159,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     val known = Payees.all.joinToString(", ") { it.name }
                     say(Speaker.ASSISTANT, "I don't have ${intent.payeeName} in your contacts. I can send to $known.")
                 } else {
-                    say(Speaker.TOOL, "transfer(payee=\"${payee.id}\", amountCents=${intent.amountCents}, actor=\"assistant\")")
-                    send(payee, intent.amountCents, Actor.ASSISTANT)
+                    requestGrant(payee, intent.amountCents)
                 }
             }
             AssistantIntent.CheckBalance -> refreshBalance(announce = true)
@@ -155,13 +168,58 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Agent identity: the user delegates before the assistant acts ──────────────
+
+    private fun requestGrant(payee: Payee, amountCents: Long) {
+        val limit = api.agentLimitCents
+        val scope = minOf(amountCents, limit)
+        say(Speaker.TOOL, "request_delegation(agent=\"${WalletApi.ASSISTANT_AGENT_ID}\", action=\"transfer\", " +
+            "payee=\"${payee.id}\", maxAmountCents=$scope)")
+        say(Speaker.ASSISTANT, "I need your permission to send ${formatEuros(amountCents)} to ${payee.name}.")
+        _state.update { it.copy(pendingGrant = GrantRequest(payee, amountCents, scope, limit)) }
+    }
+
+    /** User tapped Allow: mint the scoped token (X-Actor: user), show it, then let the assistant act with it. */
+    fun approveGrant() {
+        val req = _state.value.pendingGrant ?: return
+        if (_state.value.busy) return
+        _state.update { it.copy(pendingGrant = null, busy = true) }
+        viewModelScope.launch {
+            val grant = try {
+                api.grantAssistant(req.payee.id, req.scopeCents)
+            } catch (e: Exception) {
+                _state.update { it.copy(busy = false) }
+                say(Speaker.ASSISTANT, "I couldn't get a delegation: ${e.message ?: e.javaClass.simpleName}. Nothing was sent.")
+                return@launch
+            }
+            _state.update { it.copy(busy = false) }
+            say(Speaker.GRANT, describe(grant, req.payee))
+            say(Speaker.TOOL, "transfer(payee=\"${req.payee.id}\", amountCents=${req.amountCents}, actor=\"assistant\") " +
+                "X-Agent-Token: ${grant.token.take(14)}…")
+            send(req.payee, req.amountCents, Actor.ASSISTANT, grant.token)
+        }
+    }
+
+    fun denyGrant() {
+        if (_state.value.pendingGrant == null) return
+        _state.update { it.copy(pendingGrant = null) }
+        say(Speaker.ASSISTANT, "OK. Without your permission I won't send anything.")
+    }
+
+    private fun describe(g: AgentGrant, payee: Payee): String {
+        val expires = TIME.format(Instant.ofEpochSecond(g.expiresAtSeconds).atZone(ZoneId.systemDefault()))
+        val to = if (g.payeeId == null) "anyone" else payee.name
+        return "You granted ${g.agentId}: ${g.action} up to ${formatEuros(g.maxAmountCents)} to $to · single use · " +
+            "expires $expires · jti ${g.jti}"
+    }
+
     /** Manual transfer from the Send dialog: same API, actor = user. */
     fun sendManual(payee: Payee, amountCents: Long) {
         say(Speaker.USER, "(manual) Send ${formatEuros(amountCents)} to ${payee.name}")
         send(payee, amountCents, Actor.USER)
     }
 
-    private fun send(payee: Payee, amountCents: Long, actor: Actor) {
+    private fun send(payee: Payee, amountCents: Long, actor: Actor, agentToken: String? = null) {
         // Local root gate, re-checked before every transfer. Lab 1's hook makes this false.
         if (Guard.isRooted()) {
             say(Speaker.ASSISTANT, "I can't send money from a rooted device.")
@@ -171,7 +229,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             try {
-                val outcome = api.sendTransfer(payee.id, amountCents, actor)
+                val outcome = api.sendTransfer(payee.id, amountCents, actor, agentToken)
                 handleOutcome(outcome, payee, amountCents, actor)
             } catch (e: Exception) {
                 say(Speaker.ASSISTANT, "That didn't go through: ${e.message ?: e.javaClass.simpleName}")
@@ -258,4 +316,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun say(from: Speaker, text: String) =
         _state.update { it.copy(messages = it.messages + ChatMessage(from, text)) }
+
+    private companion object {
+        val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+    }
 }

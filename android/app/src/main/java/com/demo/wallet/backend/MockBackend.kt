@@ -1,5 +1,6 @@
 package com.demo.wallet.backend
 
+import com.demo.wallet.AgentGrant
 import com.demo.wallet.Challenge
 import com.demo.wallet.Decision
 import com.demo.wallet.Session
@@ -19,22 +20,30 @@ import java.util.Base64
 import java.util.UUID
 
 /**
- * In-process stand-in for server/ so the app runs on an emulator with no backend
- * (gradle property demowallet.apiBaseUrl=mock, the default until step 3 lands).
+ * In-process stand-in for server/ so the app runs without the lab server
+ * (gradle property demowallet.apiBaseUrl=mock; the branches default to the server).
  *
  * The rules below are a placeholder risk engine — simple, readable, and NOT the
- * lab's real logic. They exist so every screen can be reached on stage:
- *   - amount above balance               -> block
- *   - Lab 2 on and no integrity token     -> step_up  (missing verdict: step up, never block)
- *   - hook / bad signature / debugger     -> step_up
- *   - assistant above the agent limit     -> step_up  (deck slide 18, limit still TBD)
- *   - user above the user limit           -> step_up
- *   - root or emulator only               -> monitor
- *   - otherwise                           -> allow
- * Integrity tokens are NOT decoded here (that needs Google's API on a server); a
- * present token is accepted as-is, which is exactly why this is only a mock.
+ * lab's real logic. They exist so every screen can be reached without Python:
+ *   - unknown payee / amount above balance          -> block
+ *   - assistant with a token this mock never issued -> block    (server: forged token)
+ *   - Lab 2 on and no integrity token               -> step_up  (missing verdict: step up, never block)
+ *   - hook / bad signature / debugger               -> step_up
+ *   - assistant without a granted token             -> step_up  (server: no_delegation)
+ *   - assistant token expired / used / out of scope -> step_up  (scope = payee + amount ≤ grant)
+ *   - user above the user limit                     -> step_up
+ *   - root or emulator only                         -> monitor
+ *   - otherwise                                     -> allow
+ * Agent tokens follow the server's rules (user-only, capped at [agentLimitCents], single use,
+ * short-lived) but are opaque ids, not HMAC-signed. Integrity tokens are NOT decoded here
+ * (that needs Google's API on a server); a present token is accepted as-is.
  */
-class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
+class MockBackend(
+    startingBalanceCents: Long = 245_000,
+    /** Deck slide 18's agent limit; WalletApi passes BuildConfig.AGENT_LIMIT_CENTS. */
+    private val agentLimitCents: Long = DEFAULT_AGENT_LIMIT_CENTS,
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
+) : Backend {
 
     private data class Pending(val transfer: Transfer, val challenge: Challenge)
 
@@ -42,6 +51,8 @@ class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
     private var balance = startingBalanceCents
     private var devicePublicKey: PublicKey? = null
     private val pending = mutableMapOf<String, Pending>()
+    private val grants = mutableMapOf<String, AgentGrant>()
+    private val usedGrants = mutableSetOf<String>()
     private val random = SecureRandom()
 
     override fun login(username: String, password: String, devicePublicKey: String, rasp: RaspReport): Session {
@@ -52,6 +63,27 @@ class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
 
     override fun balance(session: Session, rasp: RaspReport): Long = synchronized(lock) { balance }
 
+    override fun mintAgentToken(
+        session: Session, agentId: String, payeeId: String, maxAmountCents: Long, ttlSeconds: Int,
+        rasp: RaspReport,
+    ): AgentGrant = synchronized(lock) {
+        if (maxAmountCents !in 1..agentLimitCents) {
+            throw BackendException("maxAmountCents must be between 1 and the agent limit ($agentLimitCents)", 400)
+        }
+        if (ttlSeconds !in 1..MAX_TTL_SECONDS) {
+            throw BackendException("ttlSeconds must be between 1 and $MAX_TTL_SECONDS", 400)
+        }
+        val now = nowSeconds()
+        val jti = hex(8)
+        val grant = AgentGrant(
+            token = "mock-agent.$jti", jti = jti, agentId = agentId, action = "transfer",
+            maxAmountCents = maxAmountCents, payeeId = payeeId,
+            issuedAtSeconds = now, expiresAtSeconds = now + ttlSeconds,
+        )
+        grants[grant.token] = grant
+        grant
+    }
+
     override fun submitTransfer(session: Session, request: TransferRequest): TransferOutcome = synchronized(lock) {
         val t = request.transfer
         val id = "tx-" + UUID.randomUUID().toString().take(8)
@@ -61,6 +93,26 @@ class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
             return TransferOutcome(Decision.BLOCK, id, "Insufficient funds for ${formatEuros(t.amountCents)}.")
         }
 
+        // Agent layer: does a grant the user made cover this assistant transfer?
+        var inScope: AgentGrant? = null
+        var agentReason: String? = null
+        if (t.actor == Actor.ASSISTANT) {
+            val token = request.agentToken
+            val g = token?.let { grants[it] }
+            when {
+                token == null -> agentReason = "The assistant has no delegation token for this."
+                g == null -> return TransferOutcome(Decision.BLOCK, id, "Agent token is not valid.")
+                nowSeconds() >= g.expiresAtSeconds -> agentReason = "Agent token has expired."
+                g.jti in usedGrants -> agentReason = "Agent token was already used."
+                g.payeeId != null && g.payeeId != t.payeeId ->
+                    agentReason = "Outside the assistant's delegation: token is limited to payee ${g.payeeId}."
+                t.amountCents > g.maxAmountCents ->
+                    agentReason = "Outside the assistant's delegation: ${formatEuros(t.amountCents)} " +
+                        "exceeds the delegated ${formatEuros(g.maxAmountCents)}."
+                else -> inScope = g
+            }
+        }
+
         val r = request.rasp
         val i = request.integrity
         val stepUpReason = when {
@@ -68,12 +120,14 @@ class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
             r.hooked -> "Instrumentation detected on the device."
             !r.signatureValid -> "App signature doesn't match."
             r.debugger -> "Debugger attached."
-            t.actor == Actor.ASSISTANT && t.amountCents > AGENT_LIMIT_CENTS ->
-                "Assistant transfers above ${formatEuros(AGENT_LIMIT_CENTS)} need your confirmation."
+            agentReason != null -> agentReason
             t.actor == Actor.USER && t.amountCents > USER_LIMIT_CENTS ->
                 "Transfers above ${formatEuros(USER_LIMIT_CENTS)} need confirmation."
             else -> null
         }
+        // Like the server: an in-scope token is spent once the transfer isn't blocked.
+        inScope?.let { usedGrants += it.jti }
+
         if (stepUpReason != null) {
             val challenge = Challenge(id = "ch-" + UUID.randomUUID().toString().take(8), nonce = hex(16))
             pending[id] = Pending(t, challenge)
@@ -82,7 +136,11 @@ class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
 
         balance -= t.amountCents
         val decision = if (r.rooted || r.emulator) Decision.MONITOR else Decision.ALLOW
-        val note = if (decision == Decision.MONITOR) " (logged for review: ${monitorWhy(r)})" else ""
+        val notes = listOfNotNull(
+            inScope?.let { "assistant within its delegation of ${formatEuros(it.maxAmountCents)}" },
+            if (decision == Decision.MONITOR) "logged for review: ${monitorWhy(r)}" else null,
+        )
+        val note = if (notes.isEmpty()) "" else " (${notes.joinToString("; ")})"
         TransferOutcome(decision, id, "Sent ${formatEuros(t.amountCents)} to ${payee.name}$note.", balanceCents = balance)
     }
 
@@ -125,8 +183,9 @@ class MockBackend(startingBalanceCents: Long = 245_000) : Backend {
     private fun hex(n: Int) = ByteArray(n).also(random::nextBytes).joinToString("") { "%02x".format(it) }
 
     companion object {
-        /** Placeholder for the deck's "agent limit [€__]" (slide 18). */
-        const val AGENT_LIMIT_CENTS = 10_000L   // €100
+        /** Default for the deck's "agent limit" (slide 18): €100. Same as the server's DW_AGENT_LIMIT_CENTS. */
+        const val DEFAULT_AGENT_LIMIT_CENTS = 10_000L
         const val USER_LIMIT_CENTS = 100_000L   // €1,000
+        const val MAX_TTL_SECONDS = 600
     }
 }

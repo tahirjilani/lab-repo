@@ -24,7 +24,7 @@ class Settings:
     checks: FrozenSet[str] = frozenset(LAYERS)
     # No `integrity` field in the body counts as a missing verdict (an attacker can just omit it).
     integrity_required: bool = True
-    agent_limit_cents: int = 10_000      # deck slide 18 "agent limit [€__]" — still TBD
+    agent_limit_cents: int = 10_000      # deck slide 18 agent limit: €100 (app: demowallet.agentLimitCents)
     user_limit_cents: int = 100_000      # €1,000: user transfers above this step up
     agent_token_default_ttl_s: int = 300
     agent_token_max_ttl_s: int = 600

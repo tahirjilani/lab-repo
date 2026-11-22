@@ -1,5 +1,6 @@
 package com.demo.wallet.backend
 
+import com.demo.wallet.AgentGrant
 import com.demo.wallet.Session
 import com.demo.wallet.TransferOutcome
 import com.demo.wallet.TransferRequest
@@ -20,6 +21,12 @@ import com.demo.wallet.transfer.Actor
  *                            -> {decision, transferId, reason, challenge?:{id,nonce}, balanceCents?}
  * POST /api/transfers/{id}/confirm {challengeId, signature}
  *                            -> {decision, transferId, reason, balanceCents?}
+ * POST /api/agent-tokens     {agentId, action, maxAmountCents, payeeId?, ttlSeconds?, currency?}
+ *                            (X-Actor: user only — an agent can't delegate to itself)
+ *                            -> {agentToken, jti, agentId, action, maxAmountCents, payeeId,
+ *                                issuedAt, expiresAt}
+ * Assistant transfers carry the granted token as `X-Agent-Token`. Without one, the
+ * server steps up every assistant transfer ("no delegation").
  *
  * decision ∈ allow | monitor | step_up | block.
  * `integrity` is absent when the Lab 2 flag is off. clientRequestHash is for logs
@@ -32,6 +39,17 @@ interface Backend {
     fun login(username: String, password: String, devicePublicKey: String, rasp: RaspReport): Session
     fun balance(session: Session, rasp: RaspReport): Long
     fun submitTransfer(session: Session, request: TransferRequest): TransferOutcome
+
+    /** The user grants [agentId] one transfer to [payeeId] of at most [maxAmountCents]. Always sent as X-Actor: user. */
+    fun mintAgentToken(
+        session: Session,
+        agentId: String,
+        payeeId: String,
+        maxAmountCents: Long,
+        ttlSeconds: Int,
+        rasp: RaspReport,
+    ): AgentGrant
+
     fun confirm(
         session: Session,
         transferId: String,

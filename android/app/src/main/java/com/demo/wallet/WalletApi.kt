@@ -33,7 +33,11 @@ class WalletApi(context: Context) {
     private val random = SecureRandom()
 
     val backend: Backend =
-        if (BuildConfig.API_BASE_URL == "mock") MockBackend() else HttpBackend(BuildConfig.API_BASE_URL)
+        if (BuildConfig.API_BASE_URL == "mock") MockBackend(agentLimitCents = BuildConfig.AGENT_LIMIT_CENTS)
+        else HttpBackend(BuildConfig.API_BASE_URL)
+
+    /** Deck slide 18: the most the user can delegate to the assistant (gradle demowallet.agentLimitCents). */
+    val agentLimitCents: Long get() = BuildConfig.AGENT_LIMIT_CENTS
 
     val integrityBindingEnabled: Boolean get() = BuildConfig.INTEGRITY_BINDING
 
@@ -54,7 +58,18 @@ class WalletApi(context: Context) {
         backend.balance(requireSession(), rasp())
     }
 
-    suspend fun sendTransfer(payeeId: String, amountCents: Long, actor: Actor): TransferOutcome =
+    /**
+     * Agent identity: the USER grants the assistant one scoped, single-use token before it acts.
+     * Sent with X-Actor: user; the server won't mint one for the assistant itself.
+     */
+    suspend fun grantAssistant(payeeId: String, maxAmountCents: Long): AgentGrant =
+        withContext(Dispatchers.IO) {
+            backend.mintAgentToken(requireSession(), ASSISTANT_AGENT_ID, payeeId, maxAmountCents,
+                AGENT_TOKEN_TTL_SECONDS, rasp())
+        }
+
+    /** [agentToken]: the grant's token for assistant transfers (X-Agent-Token); null for the user. */
+    suspend fun sendTransfer(payeeId: String, amountCents: Long, actor: Actor, agentToken: String? = null): TransferOutcome =
         withContext(Dispatchers.IO) {
             val s = requireSession()
             val transfer = Transfer(
@@ -69,7 +84,7 @@ class WalletApi(context: Context) {
             val integrityResult: IntegrityResult? =
                 if (integrityBindingEnabled) integrity.tokenFor(transfer.requestHash()) else null
 
-            backend.submitTransfer(s, TransferRequest(transfer, rasp(), integrityResult))
+            backend.submitTransfer(s, TransferRequest(transfer, rasp(), integrityResult, agentToken))
                 .copy(requestHash = transfer.requestHash())
         }
 
@@ -92,6 +107,9 @@ class WalletApi(context: Context) {
     companion object {
         const val HEADER_ACTOR = "X-Actor"
         const val HEADER_AGENT_ID = "X-Agent-Id"
+        const val HEADER_AGENT_TOKEN = "X-Agent-Token"
+        /** How long a grant lasts. The server's default is 300 s, its maximum 600 s. */
+        const val AGENT_TOKEN_TTL_SECONDS = 300
         /** Identity the in-app assistant presents. A real deployment would sign this. */
         const val ASSISTANT_AGENT_ID = "demowallet-assistant/1.0"
     }

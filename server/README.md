@@ -7,12 +7,12 @@ FastAPI, in-memory state, one lab account (`acc-001`, €2,450.00), reset on res
 # from the repo root
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r server/requirements.txt
-pytest server                                   # 78 tests
+pytest server
 uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
 
-Point the app at it: `cd android && ./gradlew installDebug -Pdemowallet.apiBaseUrl=http://10.0.2.2:8000`
-(the emulator's 10.0.2.2 is your Mac's localhost).
+The app talks to it by default (`demowallet.apiBaseUrl=http://10.0.2.2:8000`; the emulator's 10.0.2.2 is your Mac's localhost).
+Full setup: [`docs/setup.md`](../docs/setup.md).
 
 ## What `POST /api/transfers` does
 
@@ -35,7 +35,7 @@ curl -s localhost:8000/api/agent-tokens -H "Authorization: Bearer $SESSION" -H '
   -d '{"agentId":"demowallet-assistant/1.0","action":"transfer","maxAmountCents":5000,"payeeId":"ana","ttlSeconds":300}'
 ```
 
-`dwat1.<claims>.<HMAC-SHA256>` with `account, agent_id, action, max_amount_cents, currency, payee_id?, iat, exp`. Max amount is capped by the agent limit (deck slide 18, `DW_AGENT_LIMIT_CENTS`, default €100), TTL by `DW_AGENT_TOKEN_MAX_TTL_SECONDS` (600). Single use. Out of scope (amount, payee, action, agent id) or expired → step-up; forged or another account's token → block. The current app does not send `X-Agent-Token` yet, so every assistant transfer is "no delegation" → step-up.
+`dwat1.<claims>.<HMAC-SHA256>` with `account, agent_id, action, max_amount_cents, currency, payee_id?, iat, exp`. Max amount is capped by the agent limit (deck slide 18, `DW_AGENT_LIMIT_CENTS`, default €100), TTL by `DW_AGENT_TOKEN_MAX_TTL_SECONDS` (600). Single use. Out of scope (amount, payee, action, agent id) or expired → step-up; forged or another account's token → block. The app asks you to **Allow** before the assistant acts, mints the token with `X-Actor: user` (payee-scoped, `min(amount, agent limit)`, 300 s), shows it in the chat, then sends it as `X-Agent-Token`. Denying sends nothing; "Send €200 to Ana" gets a €100 token and steps up as out of scope.
 
 ## Mock verdict mode (default) — no Google Cloud needed
 
@@ -85,7 +85,7 @@ Emulator RASP unless noted, €20 transfer.
 | `DW_MOCK_VERDICT` | `emulator` | profile above |
 | `DW_SERVER_CHECKS` | `integrity,rasp,agent` | empty = server trusts the client (Lab 1 "before") |
 | `DW_INTEGRITY_REQUIRED` | `1` | `0`: a body without `integrity` isn't penalized |
-| `DW_AGENT_LIMIT_CENTS` | `10000` | slide 18 agent limit, still TBD |
+| `DW_AGENT_LIMIT_CENTS` | `10000` | slide 18 agent limit (€100); keep equal to the app's `demowallet.agentLimitCents` |
 | `DW_USER_LIMIT_CENTS` | `100000` | |
 | `DW_AGENT_TOKEN_TTL_SECONDS` / `_MAX_TTL_SECONDS` | `300` / `600` | |
 | `DW_AGENT_TOKEN_SECRET` | random per start | set it to keep tokens valid across restarts |

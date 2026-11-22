@@ -44,4 +44,23 @@ data class TransferRequest(
     val rasp: RaspReport,
     /** null when the Lab 2 feature flag is off: the field is omitted from the body. */
     val integrity: IntegrityResult?,
+    /** Scoped token the user granted the assistant; sent as X-Agent-Token. null for user transfers. */
+    val agentToken: String? = null,
+)
+
+/**
+ * A delegation the USER granted the assistant (POST /api/agent-tokens, X-Actor: user):
+ * one action, one payee, up to [maxAmountCents], single use, short-lived.
+ * The server refuses to mint one for the assistant itself, and caps [maxAmountCents]
+ * at the agent limit (deck slide 18).
+ */
+data class AgentGrant(
+    val token: String,
+    val jti: String,
+    val agentId: String,
+    val action: String,
+    val maxAmountCents: Long,
+    val payeeId: String?,
+    val issuedAtSeconds: Long,
+    val expiresAtSeconds: Long,
 )

@@ -2,6 +2,7 @@ package com.demo.wallet
 
 import com.demo.wallet.assistant.AssistantIntent
 import com.demo.wallet.assistant.IntentParser
+import com.demo.wallet.backend.BackendException
 import com.demo.wallet.backend.MockBackend
 import com.demo.wallet.rasp.RaspReport
 import com.demo.wallet.transfer.Actor
@@ -73,6 +74,64 @@ class LogicTest {
         val done = backend.confirm(s, o.transferId, ch.id, Base64.getEncoder().encodeToString(sig), Actor.ASSISTANT, clean)
         assertEquals(Decision.ALLOW, done.decision)
         assertEquals(225_000L, done.balanceCents)
+    }
+
+    // ── Agent tokens: MockBackend mirrors server/agent_tokens.py ──
+
+    private val clean = RaspReport(false, false, false, true, false)
+
+    private fun assistantTransfer(s: Session, cents: Long, payee: String = "ana", nonce: String = "n-$cents-$payee") =
+        Transfer(s.account, payee, cents, nonce = nonce, actor = Actor.ASSISTANT)
+
+    @Test fun assistantWithoutGrantStepsUp() {
+        val b = MockBackend()
+        val s = b.login("t", "p", "", clean)
+        val o = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 2_000), clean, null))
+        assertEquals(Decision.STEP_UP, o.decision)
+        assertTrue(o.reason, o.reason.contains("no delegation"))
+    }
+
+    @Test fun assistantWithinGrantGoesThroughOnce() {
+        val b = MockBackend()
+        val s = b.login("t", "p", "", clean)
+        val g = b.mintAgentToken(s, WalletApi.ASSISTANT_AGENT_ID, "ana", 2_000, 300, clean)
+        assertEquals(2_000L, g.maxAmountCents)
+        val ok = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 2_000), clean, null, g.token))
+        assertEquals(Decision.ALLOW, ok.decision)
+        assertEquals(243_000L, ok.balanceCents)
+        // Single use: the same token can't move money twice.
+        val again = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 2_000, nonce = "n2"), clean, null, g.token))
+        assertEquals(Decision.STEP_UP, again.decision)
+        assertTrue(again.reason, again.reason.contains("already used"))
+    }
+
+    @Test fun grantIsCappedAtTheAgentLimitAndScoped() {
+        val b = MockBackend(agentLimitCents = 10_000)
+        val s = b.login("t", "p", "", clean)
+        val tooBig = runCatching { b.mintAgentToken(s, WalletApi.ASSISTANT_AGENT_ID, "ana", 20_000, 300, clean) }
+        assertTrue(tooBig.exceptionOrNull() is BackendException)
+
+        // "Send €200 to Ana": the user can delegate at most €100, so the transfer steps up.
+        val g = b.mintAgentToken(s, WalletApi.ASSISTANT_AGENT_ID, "ana", 10_000, 300, clean)
+        val over = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 20_000), clean, null, g.token))
+        assertEquals(Decision.STEP_UP, over.decision)
+        assertTrue(over.reason, over.reason.contains("exceeds the delegated €100.00"))
+
+        val g2 = b.mintAgentToken(s, WalletApi.ASSISTANT_AGENT_ID, "ana", 2_000, 300, clean)
+        val otherPayee = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 2_000, payee = "ben"), clean, null, g2.token))
+        assertEquals(Decision.STEP_UP, otherPayee.decision)
+    }
+
+    @Test fun expiredAndUnknownAgentTokens() {
+        var now = 1_000L
+        val b = MockBackend(nowSeconds = { now })
+        val s = b.login("t", "p", "", clean)
+        val g = b.mintAgentToken(s, WalletApi.ASSISTANT_AGENT_ID, "ana", 2_000, 60, clean)
+        now += 60
+        val expired = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 2_000), clean, null, g.token))
+        assertEquals(Decision.STEP_UP, expired.decision)
+        val forged = b.submitTransfer(s, TransferRequest(assistantTransfer(s, 2_000, nonce = "f"), clean, null, "dwat1.x.y"))
+        assertEquals(Decision.BLOCK, forged.decision)
     }
 
     @Test fun missingIntegrityTokenStepsUpNotBlocks() {

@@ -98,6 +98,7 @@ def test_step_up_without_device_key(make_service, device):
 
 # ── Hard rules ────────────────────────────────────────────────────────────────
 
+@pytest.mark.lab2
 def test_request_hash_mismatch_is_blocked(make_service, device):
     svc = make_service(mock_verdict="device_ok")
     dev = signed_in(svc, device)
@@ -110,6 +111,7 @@ def test_request_hash_mismatch_is_blocked(make_service, device):
     assert svc.balance(dev.headers())["balanceCents"] == 245_000
 
 
+@pytest.mark.lab2
 def test_body_altered_in_transit_is_blocked(make_service, device):
     svc = make_service(mock_verdict="device_ok")
     dev = signed_in(svc, device)
@@ -158,6 +160,36 @@ def test_assistant_over_delegation_steps_up_and_token_is_single_use(make_service
     assert ok["decision"] == "allow"
     reused = submit(svc, dev, actor="assistant", agent_token=token, cents=2_000)
     assert reused["decision"] == "step_up" and "already used" in reused["reason"]
+
+
+
+def test_app_grant_then_assistant_transfer(make_service, device):
+    """The app's flow (WalletViewModel.approveGrant): the user grants min(amount, agent limit) for one
+    payee, then the assistant sends with X-Agent-Token. Emulator RASP, default agent limit €100."""
+    svc = make_service(mock_verdict="device_ok")
+    dev = signed_in(svc, device)
+
+    def grant(cents):  # exactly the body HttpBackend.mintAgentToken sends
+        return svc.mint_agent_token({"agentId": "demowallet-assistant/1.0", "action": "transfer",
+                                     "maxAmountCents": cents, "payeeId": "ana", "ttlSeconds": 300,
+                                     "currency": "EUR"}, dev.headers("user"))
+
+    g = grant(2_000)  # "Send €20 to Ana"
+    assert g["maxAmountCents"] == 2_000 and g["payeeId"] == "ana" and g["expiresAt"] - g["issuedAt"] == 300
+    ok = submit(svc, dev, actor="assistant", agent_token=g["agentToken"], cents=2_000)
+    assert (ok["decision"], ok["riskScore"]) == ("monitor", 35)
+
+    g = grant(10_000)  # "Send €200 to Ana": capped at the agent limit
+    over = submit(svc, dev, actor="assistant", agent_token=g["agentToken"], cents=20_000)
+    assert over["decision"] == "step_up" and "exceeds the delegated €100.00" in over["reason"]
+
+    with pytest.raises(ApiError) as e:  # the app never asks for more than the limit; the server refuses anyway
+        grant(20_000)
+    assert e.value.status == 400
+    with pytest.raises(ApiError) as e:  # the assistant can't grant itself a token
+        svc.mint_agent_token({"agentId": "demowallet-assistant/1.0", "maxAmountCents": 2_000},
+                             dev.headers("assistant"))
+    assert e.value.status == 403
 
 
 # ── Errors and lab helpers ────────────────────────────────────────────────────

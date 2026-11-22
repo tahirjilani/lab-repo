@@ -21,6 +21,7 @@ android {
         buildConfigField("boolean", "INTEGRITY_BINDING", prop("demowallet.integrityBinding", "false"))
         buildConfigField("long", "CLOUD_PROJECT_NUMBER", prop("demowallet.cloudProjectNumber", "0") + "L")
         buildConfigField("String", "API_BASE_URL", "\"" + prop("demowallet.apiBaseUrl", "mock") + "\"")
+        buildConfigField("long", "AGENT_LIMIT_CENTS", prop("demowallet.agentLimitCents", "10000") + "L")
         // SHA-256 of the shared lab signing certificate (keystore/lab-debug.jks).
         buildConfigField(
             "String", "EXPECTED_SIGNER_SHA256",
