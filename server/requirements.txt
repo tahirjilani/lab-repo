@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn>=0.29
+cryptography>=42
+# tests (FastAPI's TestClient needs httpx)
+pytest>=8
+httpx>=0.27
+# DW_VERDICT_MODE=google only: decode real Play Integrity tokens
+google-auth>=2.29
+requests>=2.31
