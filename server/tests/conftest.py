@@ -13,7 +13,7 @@ NOW = 1_800_000_000.0  # fixed clock, seconds
 # Lab 2 switch. False on main (the solution). lab2-start sets it to True: the LAB 2 checks in
 # server/verify.py are the exercise there, so tests marked `lab2` are skipped by `pytest server`
 # and run with `pytest server --lab2` once you've filled in the TODOs (they're your checker).
-LAB2_IS_EXERCISE = False
+LAB2_IS_EXERCISE = True
 
 
 def pytest_addoption(parser):

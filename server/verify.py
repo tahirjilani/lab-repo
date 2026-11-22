@@ -191,18 +191,24 @@ def check_payload(payload: Dict[str, Any], expected_hash: str, package_name: str
                   max_age_s: int, now_ms: int) -> List[Signal]:
     rd = payload.get("requestDetails") or {}
 
-    # ── LAB 2: the three checks that make the token mean something ──
-    if rd.get("requestPackageName") != package_name:
-        return [_sig("package_mismatch", 0, BLOCK, "Integrity token was issued for another app.")]
-    if not hmac.compare_digest(str(rd.get("requestHash") or ""), expected_hash):
-        return [_sig("hash_mismatch", 0, BLOCK, "Integrity token is bound to a different transfer.")]
+    # ── LAB 2: the three checks that make the token mean something (docs/lab2.md, part B) ──
+    # `rd` is the token's requestDetails. Until these are filled in, a token lifted from another
+    # transfer, another app or last week still counts as a good verdict. Check with:
+    #   pytest server --lab2
+    #
+    # TODO(Lab 2, B1): block if the token was issued for another app.
+    #   rd.get("requestPackageName") must equal package_name; otherwise
+    #   return [_sig("package_mismatch", 0, BLOCK, "Integrity token was issued for another app.")]
+    #
+    # TODO(Lab 2, B2): block if the token is bound to a different transfer.
+    #   rd.get("requestHash") must equal expected_hash (use hmac.compare_digest); otherwise
+    #   return [_sig("hash_mismatch", 0, BLOCK, "Integrity token is bound to a different transfer.")]
+    #
     out: List[Signal] = []
-    try:
-        age_ms = now_ms - int(rd.get("timestampMillis"))
-    except (TypeError, ValueError):
-        age_ms = None
-    if age_ms is None or age_ms > max_age_s * 1000 or age_ms < -60_000:
-        out.append(_sig("stale", 30, STEP_UP, "Integrity verdict is missing a fresh timestamp."))
+    # TODO(Lab 2, B3): step up if the verdict isn't fresh.
+    #   rd.get("timestampMillis") is epoch milliseconds as a string. If it's missing or not a number,
+    #   older than max_age_s seconds, or more than 60 s in the future:
+    #   out.append(_sig("stale", 30, STEP_UP, "Integrity verdict is missing a fresh timestamp."))
     # ── end LAB 2 ──
 
     app = (payload.get("appIntegrity") or {}).get("appRecognitionVerdict", "UNEVALUATED")

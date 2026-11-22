@@ -80,9 +80,13 @@ class WalletApi(context: Context) {
                 actor = actor,
             )
 
-            // ── Lab 2: bind a Play Integrity token to this exact transfer ──
-            val integrityResult: IntegrityResult? =
-                if (integrityBindingEnabled) integrity.tokenFor(transfer.requestHash()) else null
+            // ── Lab 2: bind a Play Integrity token to this exact transfer (docs/lab2.md, part A) ──
+            // TODO(Lab 2, A): when integrityBindingEnabled, ask Play Integrity for a token bound to
+            //   THIS transfer: integrity.tokenFor(transfer.requestHash()). When it's off, send nothing (null).
+            //   tokenFor() never throws: with no Cloud project it returns the error ("NOT_CONFIGURED"),
+            //   which the server treats as a failed verdict and steps up.
+            //   Until you do this, the body has no `integrity` field at all ("No integrity verdict sent").
+            val integrityResult: IntegrityResult? = null
 
             backend.submitTransfer(s, TransferRequest(transfer, rasp(), integrityResult, agentToken))
                 .copy(requestHash = transfer.requestHash())
