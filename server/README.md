@@ -35,7 +35,7 @@ curl -s localhost:8000/api/agent-tokens -H "Authorization: Bearer $SESSION" -H '
   -d '{"agentId":"demowallet-assistant/1.0","action":"transfer","maxAmountCents":5000,"payeeId":"ana","ttlSeconds":300}'
 ```
 
-`dwat1.<claims>.<HMAC-SHA256>` with `account, agent_id, action, max_amount_cents, currency, payee_id?, iat, exp`. Max amount is capped by the agent limit (deck slide 18, `DW_AGENT_LIMIT_CENTS`, default €100), TTL by `DW_AGENT_TOKEN_MAX_TTL_SECONDS` (600). Single use. Out of scope (amount, payee, action, agent id) or expired → step-up; forged or another account's token → block. The app asks you to **Allow** before the assistant acts, mints the token with `X-Actor: user` (payee-scoped, `min(amount, agent limit)`, 300 s), shows it in the chat, then sends it as `X-Agent-Token`. Denying sends nothing; "Send €200 to Ana" gets a €100 token and steps up as out of scope.
+`dwat1.<claims>.<HMAC-SHA256>` with `account, agent_id, action, max_amount_cents, currency, payee_id?, iat, exp`. Max amount is capped by the agent limit (deck slide 18, `DW_AGENT_LIMIT_CENTS`, default €100), TTL by `DW_AGENT_TOKEN_MAX_TTL_SECONDS` (600). Single use. Out of scope (amount, payee, action, agent id) or expired → step-up; forged or another account's token → block. The app asks you to **Allow** before the assistant acts, mints the token with `X-Actor: user` (payee-scoped, `min(amount, agent limit)`, 300 s), shows it in the chat, then sends it as `X-Agent-Token`. Denying sends nothing. "Send €200 to Ana" gets a €100 token and is out of scope: step-up (55) with `device_ok`, block (90) with the default `emulator` profile, where the out-of-scope points land on top of the failed verdict.
 
 ## Mock verdict mode (default) — no Google Cloud needed
 

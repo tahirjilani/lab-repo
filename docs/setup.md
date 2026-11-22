@@ -116,7 +116,7 @@ Sign in with any username and password (`tahir` / `demo` is prefilled). The foot
 **Try it:**
 
 - **"Send €20 to Ana"**: the assistant asks for your permission first. **Allow** grants it a token for one transfer to Ana of at most €20, valid 5 minutes. The grant appears in the chat, then the transfer goes out with it (`X-Agent-Token`).
-- **"Send €200 to Ana"**: you can delegate at most €100 (the agent limit), so the server steps up ("€200.00 exceeds the delegated €100.00") and you confirm with your fingerprint.
+- **"Send €200 to Ana"**: you can delegate at most €100 (the agent limit), so the assistant gets a €100 token and the €200 transfer is out of scope ("€200.00 exceeds the delegated €100.00"). What happens next depends on the verdict profile: with the default `emulator` profile the layers add up to **block** (35 integrity + 25 emulator + 30 out of scope = 90); with `device_ok` it's **step-up** (55) and you confirm with your fingerprint.
 - **Send** button: a transfer you make yourself (no token needed; over €1,000 steps up).
 
 ### Gradle switches
