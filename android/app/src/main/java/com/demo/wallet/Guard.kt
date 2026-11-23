@@ -1,5 +1,6 @@
 package com.demo.wallet
 
+import android.os.Build
 import java.io.File
 
 /**
@@ -44,5 +45,14 @@ object Guard {
      */
     @JvmStatic
     fun isRooted(): Boolean =
-        SU_PATHS.any { path -> runCatching { File(path).exists() }.getOrDefault(false) }
+        isRootableBuild() ||
+            SU_PATHS.any { path -> runCatching { File(path).exists() }.getOrDefault(false) }
+
+    /**
+     * userdebug/eng builds allow `adb root` (that's how frida-server runs as root on
+     * the Lab 1 emulator), even when newer Google APIs images ship no su binary the
+     * app can see. Google Play images and retail phones are "user" builds and pass.
+     */
+    private fun isRootableBuild(): Boolean =
+        Build.TYPE == "userdebug" || Build.TYPE == "eng"
 }
